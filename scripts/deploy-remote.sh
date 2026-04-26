@@ -30,13 +30,15 @@ FRP Tunnel - 遠端部署腳本
     -u, --user USER        SSH 用戶名 (默認: root)
     -p, --port PORT        SSH 端口 (默認: 22)
     -i, --key KEY          SSH 私鑰路徑
+    -a, --aliyun           使用阿里雲密鑰 ~/workspace/Aliyun-GZ.pem
     -h, --help             顯示此幫助
 
 參數:
     host                   遠端主機 IP 或域名
 
 範例:
-    $0 8.163.40.165
+    $0 kunlun.unclemon.studio
+    $0 -a kunlun.unclemon.studio
     $0 -u admin -i ~/.ssh/mykey your-server.com
     $0 --port 2222 192.168.1.100
 
@@ -62,6 +64,10 @@ while [[ $# -gt 0 ]]; do
         -i|--key)
             SSH_KEY="$2"
             shift 2
+            ;;
+        -a|--aliyun)
+            SSH_KEY="$HOME/workspace/Aliyun-GZ.pem"
+            shift
             ;;
         -h|--help)
             show_help
@@ -95,7 +101,11 @@ fi
 SSH_CMD="$SSH_CMD ${SSH_USER}@${REMOTE_HOST}"
 
 # 獲取腳本目錄
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -n "${BASH_SOURCE[0]:-}" ]]; then
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+else
+    SCRIPT_DIR="$(pwd)"
+fi
 BOOTSTRAP_SCRIPT="$SCRIPT_DIR/remote-init/bootstrap.sh"
 
 # 檢查腳本是否存在
@@ -133,11 +143,35 @@ else
     exit 1
 fi
 
-# 上傳並執行腳本
-log_info "上傳並執行初始化腳本..."
+# 上傳文件到遠端
+log_info "上傳腳本到遠端..."
+echo
+$SSH_CMD "mkdir -p /root/frp-tunnel"
+
+# 獲取 server 目錄的絕對路徑
+if [[ -d "$SCRIPT_DIR/server" ]]; then
+    SERVER_DIR="$SCRIPT_DIR/server"
+elif [[ -d "$SCRIPT_DIR/../server" ]]; then
+    SERVER_DIR="$(cd "$SCRIPT_DIR/../server" && pwd)"
+else
+    log_error "找不到 server 目錄"
+    exit 1
+fi
+
+log_info "Server 目錄: $SERVER_DIR"
+
+if [[ -n "$SSH_KEY" ]]; then
+    scp -i "$SSH_KEY" -P "$SSH_PORT" -o StrictHostKeyChecking=no -r "$SERVER_DIR" "${SSH_USER}@${REMOTE_HOST}:/root/frp-tunnel/" 2>&1 | grep -v "setlocale" || true
+else
+    scp -P "$SSH_PORT" -o StrictHostKeyChecking=no -r "$SERVER_DIR" "${SSH_USER}@${REMOTE_HOST}:/root/frp-tunnel/" 2>&1 | grep -v "setlocale" || true
+fi
+log_success "腳本已上傳"
+
+# 執行初始化腳本
+log_info "執行初始化腳本..."
 echo
 
-# 使用 heredoc 上傳並執行腳本
+# 將腳本內容傳到遠端執行
 $SSH_CMD "bash -s" < "$BOOTSTRAP_SCRIPT"
 
 # 檢查執行結果

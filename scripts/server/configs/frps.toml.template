@@ -8,10 +8,14 @@ bindPort = {{FRPS_PORT}}
 vhostHTTPPort = {{FRPS_VHOST_HTTP_PORT}}
 
 # Authentication token
-auth.token = {{FRP_AUTH_TOKEN}}
+[auth]
+token = {{FRP_AUTH_TOKEN}}
 
-# Subdomain host configuration
-subdomainHost = {{TUNNEL_DOMAIN}}
+# Logging configuration
+[log]
+to = "console"
+level = "info"
+maxDays = 7
 
 # Dashboard configuration (if enabled)
 {{#DASHBOARD_ENABLED}}
@@ -21,9 +25,3 @@ port = {{DASHBOARD_PORT}}
 user = {{DASHBOARD_USER}}
 password = {{DASHBOARD_PASSWORD}}
 {{/DASHBOARD_ENABLED}}
-
-# Logging configuration
-[log]
-to = "console"
-level = "info"
-maxDays = 7

@@ -2,15 +2,25 @@
 # FRP Tunnel Remote Host Bootstrap Script
 # 初始化遠端主機環境，然後執行 server 安裝腳本
 
+# 調試模式：取消註釋以下行來啟用
+# set -x
 set -euo pipefail
 
 # ============================================
 # 配置
 # ============================================
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-SERVER_INSTALL_DIR="$PROJECT_ROOT/server"
+# 獲取腳本目錄 (支援直接執行和 stdin 傳輸)
+if [[ -n "${BASH_SOURCE[0]:-}" ]]; then
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+    SERVER_INSTALL_DIR="$PROJECT_ROOT/server"
+else
+    # 通過 stdin 執行，假設已上傳到 /root/frp-tunnel
+    PROJECT_ROOT="/root/frp-tunnel"
+    SCRIPT_DIR="$PROJECT_ROOT/remote-init"
+    SERVER_INSTALL_DIR="$PROJECT_ROOT/server"
+fi
 STATE_FILE="/var/lib/frp-tunnel/bootstrap.state"
 WORK_DIR="/root/frp-tunnel"
 
@@ -32,6 +42,20 @@ log_warning() { echo -e "${YELLOW}[!]${NC} $*"; }
 log_error() { echo -e "${RED}[✗]${NC} $*"; }
 log_step() { echo -e "${CYAN}==>${NC} $*"; }
 log_progress() { echo -e "${CYAN}  →${NC} $*"; }
+
+# 確認函數
+confirm() {
+    local prompt=$1
+    local response
+
+    # 非互動式環境，默認確認
+    if [[ ! -t 0 ]]; then
+        return 0
+    fi
+
+    read -rp "${prompt} [y/N]: " response
+    [[ "$response" =~ ^[Yy]$ ]]
+}
 
 # ============================================
 # 檢查點系統
@@ -183,12 +207,11 @@ stage_docker_check() {
     if command -v docker &>/dev/null; then
         DOCKER_VERSION=$(docker --version | grep -oP '\d+\.\d+\.\d+' | head -1)
         log_progress "✓ Docker 已安裝: $DOCKER_VERSION"
-        mark_stage_complete "docker_check"
-        return 0
     else
-        log_warning "Docker 未安裝"
-        return 1
+        log_progress "Docker 未安裝，將在下一階段安裝"
     fi
+
+    mark_stage_complete "docker_check"
 }
 
 # ============================================
@@ -211,28 +234,23 @@ stage_docker_install() {
         ubuntu|debian)
             log_progress "使用 apt 安裝 Docker..."
 
-            # 更新包索引
-            apt-get update -qq
-
             # 安裝依賴
+            apt-get update -qq
             apt-get install -y \
                 ca-certificates \
                 curl \
                 gnupg \
-                lsb-release >/dev/null
+                lsb-release >/dev/null 2>&1
 
-            # 添加 Docker GPG key
-            mkdir -p /etc/apt/keyrings
-            curl -fsSL https://download.docker.com/linux/$OS_ID/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-
-            # 設置 repository
-            echo \
-              "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/$OS_ID \
-              $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
-
-            # 安裝 Docker
-            apt-get update -qq
-            apt-get install -y docker-ce docker-ce-cli containerd.io >/dev/null
+            # 使用 Docker 官方便捷腳本
+            log_progress "下載 Docker 安裝腳本..."
+            if curl -fsSL https://get.docker.com -o get-docker.sh; then
+                log_progress "執行 Docker 安裝..."
+                sh get-docker.sh 2>&1 | grep -v "setlocale"
+            else
+                log_error "無法下載 Docker 安裝腳本"
+                exit 1
+            fi
 
             ;;
         centos|rhel|rocky|almalinux)
@@ -442,16 +460,38 @@ stage_create_workdir() {
 stage_upload_scripts() {
     log_step "${STAGE_DESCRIPTION[upload_scripts]}"
 
-    # 檢查本地腳本是否存在
-    if [[ ! -d "$SERVER_INSTALL_DIR" ]]; then
-        log_error "找不到 server 安裝腳本: $SERVER_INSTALL_DIR"
-        log_info "請確保在正確的目錄運行此腳本"
+    # 檢查腳本是否已存在（可能已被 deploy-remote.sh 上傳）
+    if [[ -d "$WORK_DIR/server" ]]; then
+        log_progress "✓ 腳本已存在"
+        mark_stage_complete "upload_scripts"
+        return 0
+    fi
+
+    # 嘗試找到 server 目錄
+    local server_dir=""
+
+    # 檢查當前目錄
+    if [[ -d "./server" ]]; then
+        server_dir="./server"
+    # 檢查父目錄
+    elif [[ -d "../server" ]]; then
+        server_dir="../server"
+    # 檢查工作目錄
+    elif [[ -d "$WORK_DIR/server" ]]; then
+        server_dir="$WORK_DIR/server"
+    fi
+
+    if [[ -z "$server_dir" ]]; then
+        log_error "找不到 server 安裝腳本"
+        log_info "當前目錄: $(pwd)"
+        log_info "工作目錄: $WORK_DIR"
+        log_info "請確保腳本已上傳"
         exit 1
     fi
 
     # 複製腳本到工作目錄
     log_info "複製腳本到遠端..."
-    cp -r "$SERVER_INSTALL_DIR" "$WORK_DIR/"
+    cp -r "$server_dir" "$WORK_DIR/"
     log_progress "✓ 腳本已複製"
 
     mark_stage_complete "upload_scripts"
@@ -521,9 +561,11 @@ show_progress() {
 main() {
     show_banner
     echo
+    log_info "初始化狀態系統..."
 
     # 初始化狀態
     init_state
+    log_success "狀態系統已初始化"
 
     # 檢查是否恢復
     local current_stage
@@ -549,10 +591,18 @@ main() {
         echo
     fi
 
+    log_info "開始執行部署階段..."
+
+    # 調試輸出
+    >&2 echo "DEBUG: About to enter for loop" >&2
+
+    echo
+
     # 執行各階段
     local stage_num=0
+
     for stage in "${STAGE_ORDER[@]}"; do
-        ((stage_num++))
+        ((stage_num++)) || true
 
         # 跳過已完成的階段
         if is_stage_completed "$stage"; then

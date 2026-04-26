@@ -12,7 +12,28 @@
 
 ## 快速開始
 
-### 服務端部署 (阿里雲)
+### 方式一：一鍵遠端部署 (推薦)
+
+從本地機器直接部署到遠端主機，自動完成環境配置：
+
+```bash
+cd scripts
+./deploy-remote.sh 8.163.40.165
+```
+
+遠端部署會自動：
+- 檢測並安裝 Docker
+- 配置國內鏡像源
+- 檢查防火牆配置
+- 部署 frp 服務
+
+詳細說明: [remote-init/README.md](scripts/remote-init/README.md)
+
+### 方式二：手動部署
+
+#### 服務端部署
+
+在目標主機上執行：
 
 ```bash
 cd scripts/server
@@ -40,6 +61,10 @@ sudo ./install.sh \
 
 ```
 scripts/
+├── deploy-remote.sh     # 一鍵遠端部署
+├── remote-init/         # 遠端主機初始化
+│   ├── bootstrap.sh    # 初始化腳本
+│   └── README.md
 ├── server/              # 服務端腳本
 │   ├── install.sh      # 一鍵安裝
 │   ├── manage.sh       # 管理腳本

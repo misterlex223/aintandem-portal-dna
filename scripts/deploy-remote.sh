@@ -31,16 +31,19 @@ FRP Tunnel - 遠端部署腳本
     -p, --port PORT        SSH 端口 (默認: 22)
     -i, --key KEY          SSH 私鑰路徑
     -a, --aliyun           使用阿里雲密鑰 ~/workspace/Aliyun-GZ.pem
+    -d, --domain DOMAIN    FRP 隧道域名 (必需)
+    -t, --token TOKEN      FRP 認證 Token (留空自動生成)
+    --ssl-email EMAIL      SSL 憑證郵箱
+    --auto-start           自動啟動服務
     -h, --help             顯示此幫助
 
 參數:
     host                   遠端主機 IP 或域名
 
 範例:
-    $0 kunlun.unclemon.studio
-    $0 -a kunlun.unclemon.studio
-    $0 -u admin -i ~/.ssh/mykey your-server.com
-    $0 --port 2222 192.168.1.100
+    $0 -d kunlun.unclemon.studio kunlun.unclemon.studio
+    $0 -a -d tunnel.example.com your-server.com
+    $0 -d tunnel.example.com -t mytoken --auto-start your-server.com
 
 EOF
 }
@@ -50,6 +53,10 @@ SSH_USER="$DEFAULT_SSH_USER"
 SSH_PORT="$DEFAULT_SSH_PORT"
 SSH_KEY=""
 REMOTE_HOST=""
+FRP_DOMAIN=""
+FRP_TOKEN=""
+FRP_SSL_EMAIL=""
+FRP_AUTO_START="false"
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -67,6 +74,22 @@ while [[ $# -gt 0 ]]; do
             ;;
         -a|--aliyun)
             SSH_KEY="$HOME/workspace/Aliyun-GZ.pem"
+            shift
+            ;;
+        -d|--domain)
+            FRP_DOMAIN="$2"
+            shift 2
+            ;;
+        -t|--token)
+            FRP_TOKEN="$2"
+            shift 2
+            ;;
+        --ssl-email)
+            FRP_SSL_EMAIL="$2"
+            shift 2
+            ;;
+        --auto-start)
+            FRP_AUTO_START="true"
             shift
             ;;
         -h|--help)
@@ -88,6 +111,13 @@ done
 # 檢查參數
 if [[ -z "$REMOTE_HOST" ]]; then
     log_error "請指定遠端主機"
+    echo
+    show_help
+    exit 1
+fi
+
+if [[ -z "$FRP_DOMAIN" ]]; then
+    log_error "請指定 FRP 隧道域名 (-d/--domain)"
     echo
     show_help
     exit 1
@@ -128,6 +158,17 @@ if [[ -n "$SSH_KEY" ]]; then
     echo "  私鑰: $SSH_KEY"
 fi
 echo
+log_info "FRP 配置:"
+echo "  域名: $FRP_DOMAIN"
+if [[ -n "$FRP_TOKEN" ]]; then
+    echo "  Token: $FRP_TOKEN"
+else
+    echo "  Token: (自動生成)"
+fi
+if [[ -n "$FRP_SSL_EMAIL" ]]; then
+    echo "  SSL 郵箱: $FRP_SSL_EMAIL"
+fi
+echo
 
 # 測試連接
 log_info "測試連接..."
@@ -162,8 +203,14 @@ log_info "Server 目錄: $SERVER_DIR"
 
 if [[ -n "$SSH_KEY" ]]; then
     scp -i "$SSH_KEY" -P "$SSH_PORT" -o StrictHostKeyChecking=no -r "$SERVER_DIR" "${SSH_USER}@${REMOTE_HOST}:/root/frp-tunnel/" 2>&1 | grep -v "setlocale" || true
+    if [[ -d "$SCRIPT_DIR/shared" ]]; then
+        scp -i "$SSH_KEY" -P "$SSH_PORT" -o StrictHostKeyChecking=no -r "$SCRIPT_DIR/shared" "${SSH_USER}@${REMOTE_HOST}:/root/frp-tunnel/" 2>&1 | grep -v "setlocale" || true
+    fi
 else
     scp -P "$SSH_PORT" -o StrictHostKeyChecking=no -r "$SERVER_DIR" "${SSH_USER}@${REMOTE_HOST}:/root/frp-tunnel/" 2>&1 | grep -v "setlocale" || true
+    if [[ -d "$SCRIPT_DIR/shared" ]]; then
+        scp -P "$SSH_PORT" -o StrictHostKeyChecking=no -r "$SCRIPT_DIR/shared" "${SSH_USER}@${REMOTE_HOST}:/root/frp-tunnel/" 2>&1 | grep -v "setlocale" || true
+    fi
 fi
 log_success "腳本已上傳"
 
@@ -171,8 +218,23 @@ log_success "腳本已上傳"
 log_info "執行初始化腳本..."
 echo
 
-# 將腳本內容傳到遠端執行
-$SSH_CMD "bash -s" < "$BOOTSTRAP_SCRIPT"
+# 構建環境變量
+env_vars=""
+if [[ -n "$FRP_DOMAIN" ]]; then
+    env_vars="export FRP_DOMAIN=$FRP_DOMAIN"
+fi
+if [[ -n "$FRP_TOKEN" ]]; then
+    env_vars="$env_vars; export FRP_TOKEN=$FRP_TOKEN"
+fi
+if [[ -n "$FRP_SSL_EMAIL" ]]; then
+    env_vars="$env_vars; export FRP_SSL_EMAIL=$FRP_SSL_EMAIL"
+fi
+if [[ "$FRP_AUTO_START" == "true" ]]; then
+    env_vars="$env_vars; export FRP_AUTO_START=true"
+fi
+
+# 將腳本內容傳到遠端執行，帶環境變量
+$SSH_CMD "$env_vars; bash -s" < "$BOOTSTRAP_SCRIPT"
 
 # 檢查執行結果
 if [[ $? -eq 0 ]]; then

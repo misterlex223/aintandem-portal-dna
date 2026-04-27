@@ -10,6 +10,13 @@ set -euo pipefail
 # 配置
 # ============================================
 
+# 服務配置 (可透過環境變量傳入)
+FRP_DOMAIN="${FRP_DOMAIN:-}"
+FRP_TOKEN="${FRP_TOKEN:-}"
+FRP_SSL_EMAIL="${FRP_SSL_EMAIL:-}"
+FRP_AUTO_START="${FRP_AUTO_START:-false}"
+FRP_SKIP_SSL="${FRP_SKIP_SSL:-true}"
+
 # 獲取腳本目錄 (支援直接執行和 stdin 傳輸)
 if [[ -n "${BASH_SOURCE[0]:-}" ]]; then
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -513,8 +520,30 @@ stage_run_install() {
     log_info "執行服務安裝腳本..."
     echo
 
+    # 構建 install.sh 參數
+    local install_args=""
+
+    # 如果有域名配置，使用非互動模式
+    if [[ -n "$FRP_DOMAIN" ]]; then
+        install_args="--domain $FRP_DOMAIN -y"
+        install_args="$install_args --skip-ssl"
+
+        if [[ -n "$FRP_TOKEN" ]]; then
+            install_args="$install_args --token $FRP_TOKEN"
+        fi
+
+        if [[ -n "$FRP_SSL_EMAIL" ]]; then
+            install_args="$install_args --ssl-email $FRP_SSL_EMAIL"
+        fi
+
+        if [[ "$FRP_AUTO_START" == "true" ]]; then
+            install_args="$install_args --auto-start"
+        fi
+    fi
+
     # 執行安裝腳本
-    if ./install.sh; then
+    # shellcheck disable=SC2086
+    if ./install.sh $install_args; then
         echo
         log_success "服務安裝完成"
         mark_stage_complete "run_install"

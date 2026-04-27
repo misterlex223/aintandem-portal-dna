@@ -1,6 +1,10 @@
 #!/bin/bash
 # FRP Tunnel Server - Installation Script
 # This script sets up the frp server with Docker Compose
+#
+# Usage:
+#   Interactive mode: ./install.sh
+#   Non-interactive mode: ./install.sh --domain tunnel.example.com [options]
 
 set -euo pipefail
 
@@ -15,6 +19,129 @@ if [[ -f "$SHARED_DIR/utils.sh" ]]; then
 else
     echo "Error: Cannot find utils.sh at $SHARED_DIR/utils.sh"
     exit 1
+fi
+
+# ============================================
+# Command-line argument parsing
+# ============================================
+
+show_help() {
+    cat << EOF
+FRP Tunnel Server Installation Script
+
+Usage: $0 [OPTIONS]
+
+Options:
+    --domain DOMAIN           Tunnel domain (e.g., tunnel.example.com)
+    --token TOKEN             FRP auth token (auto-generated if not provided)
+    --ssl-email EMAIL         Email for Let's Encrypt notifications
+    --enable-dashboard        Enable frp dashboard
+    --no-dashboard            Disable frp dashboard (default)
+    --http-port PORT          HTTP port (default: 80)
+    --https-port PORT         HTTPS port (default: 443)
+    --frps-port PORT          FRPS port (default: 7000)
+    --vhost-port PORT         Vhost HTTP port (default: 8080)
+    --skip-ssl               Skip SSL certificate acquisition
+    --auto-start              Auto-start services after installation
+    -y, --yes                 Auto-confirm all prompts (non-interactive mode)
+    -h, --help                Show this help
+
+Examples:
+    # Interactive mode
+    $0
+
+    # Non-interactive mode with minimal config
+    $0 --domain tunnel.example.com -y
+
+    # Full configuration
+    $0 --domain tunnel.example.com --token mytoken --ssl-email admin@example.com -y
+
+EOF
+}
+
+# Default values
+TUNNEL_DOMAIN=""
+FRP_AUTH_TOKEN=""
+SSL_EMAIL=""
+DASHBOARD_ENABLED="false"
+NGINX_HTTP_PORT="80"
+NGINX_HTTPS_PORT="443"
+FRPS_PORT="7000"
+FRPS_VHOST_HTTP_PORT="8080"
+SKIP_SSL=false
+AUTO_START=false
+NON_INTERACTIVE=false
+
+# Parse command-line arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --domain)
+            TUNNEL_DOMAIN="$2"
+            shift 2
+            ;;
+        --token)
+            FRP_AUTH_TOKEN="$2"
+            shift 2
+            ;;
+        --ssl-email)
+            SSL_EMAIL="$2"
+            shift 2
+            ;;
+        --enable-dashboard)
+            DASHBOARD_ENABLED="true"
+            shift
+            ;;
+        --no-dashboard)
+            DASHBOARD_ENABLED="false"
+            shift
+            ;;
+        --http-port)
+            NGINX_HTTP_PORT="$2"
+            shift 2
+            ;;
+        --https-port)
+            NGINX_HTTPS_PORT="$2"
+            shift 2
+            ;;
+        --frps-port)
+            FRPS_PORT="$2"
+            shift 2
+            ;;
+        --vhost-port)
+            FRPS_VHOST_HTTP_PORT="$2"
+            shift 2
+            ;;
+        --skip-ssl)
+            SKIP_SSL=true
+            shift
+            ;;
+        --auto-start)
+            AUTO_START=true
+            shift
+            ;;
+        -y|--yes)
+            NON_INTERACTIVE=true
+            shift
+            ;;
+        -h|--help)
+            show_help
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1"
+            show_help
+            exit 1
+            ;;
+    esac
+done
+
+# Check if running in non-interactive mode
+if [[ "$NON_INTERACTIVE" == "true" ]]; then
+    if [[ -z "$TUNNEL_DOMAIN" ]]; then
+        echo "Error: --domain is required in non-interactive mode"
+        show_help
+        exit 1
+    fi
 fi
 
 # Configuration
@@ -40,8 +167,10 @@ check_prerequisites() {
     # Check if running as root
     if [[ $EUID -ne 0 ]]; then
         log_warning "This script should be run as root for full functionality"
-        if ! confirm "Continue without root? Some features may not work"; then
-            die "Please run with sudo"
+        if [[ "$NON_INTERACTIVE" == "false" ]]; then
+            if ! confirm "Continue without root? Some features may not work"; then
+                die "Please run with sudo"
+            fi
         fi
     fi
 
@@ -55,16 +184,18 @@ check_prerequisites() {
         die "Docker Compose is not installed. Please install Docker Compose first."
     fi
 
-    # Check if ports are available
-    local ports=(80 443 7000 7500)
-    for port in "${ports[@]}"; do
-        if check_port "$port"; then
-            log_warning "Port $port is already in use"
-            if ! confirm "Continue anyway?"; then
-                die "Installation cancelled"
+    # Skip port check in non-interactive mode
+    if [[ "$NON_INTERACTIVE" == "false" ]]; then
+        local ports=(80 443 7000 7500)
+        for port in "${ports[@]}"; do
+            if check_port "$port"; then
+                log_warning "Port $port is already in use"
+                if ! confirm "Continue anyway?"; then
+                    die "Installation cancelled"
+                fi
             fi
-        fi
-    done
+        done
+    fi
 
     log_success "Prerequisites check passed"
 }
@@ -73,6 +204,26 @@ check_prerequisites() {
 collect_config() {
     log_step "Collecting configuration..."
 
+    if [[ "$NON_INTERACTIVE" == "true" ]]; then
+        # Non-interactive mode - use values from command-line
+        log_info "Using non-interactive mode with provided configuration"
+
+        # Generate token if not provided
+        if [[ -z "$FRP_AUTH_TOKEN" ]]; then
+            FRP_AUTH_TOKEN=$(generate_token)
+            log_info "Generated auth token: $FRP_AUTH_TOKEN"
+        fi
+
+        # Validate domain
+        if ! validate_domain "$TUNNEL_DOMAIN"; then
+            die "Invalid domain name: $TUNNEL_DOMAIN"
+        fi
+
+        log_success "Configuration collected (non-interactive)"
+        return
+    fi
+
+    # Interactive mode
     echo
     log_info "Please provide the following configuration:"
     echo
@@ -113,11 +264,6 @@ collect_config() {
         NGINX_HTTPS_PORT=$(prompt_input "HTTPS port" "443")
         FRPS_PORT=$(prompt_input "FRPS port" "7000")
         FRPS_VHOST_HTTP_PORT=$(prompt_input "FRPS vhost HTTP port" "8080")
-    else
-        NGINX_HTTP_PORT="80"
-        NGINX_HTTPS_PORT="443"
-        FRPS_PORT="7000"
-        FRPS_VHOST_HTTP_PORT="8080"
     fi
 
     log_success "Configuration collected"
@@ -148,7 +294,7 @@ generate_env() {
 COMPOSE_PROJECT_NAME=$PROJECT_NAME
 
 # FRP Configuration
-FRP_VERSION=0.60.0
+FRP_VERSION=0.52.3
 FRPS_PORT=$FRPS_PORT
 FRPS_VHOST_HTTP_PORT=$FRPS_VHOST_HTTP_PORT
 FRP_AUTH_TOKEN=$FRP_AUTH_TOKEN
@@ -195,7 +341,6 @@ generate_frps_config() {
     sed -e "s|{{FRPS_PORT}}|$FRPS_PORT|g" \
         -e "s|{{FRPS_VHOST_HTTP_PORT}}|$FRPS_VHOST_HTTP_PORT|g" \
         -e "s|{{FRP_AUTH_TOKEN}}|$FRP_AUTH_TOKEN|g" \
-        -e "s|{{TUNNEL_DOMAIN}}|$TUNNEL_DOMAIN|g" \
         "$template" > "$output"
 
     # Handle dashboard configuration
@@ -244,17 +389,21 @@ get_ssl_certificate() {
 
     local domain="$TUNNEL_DOMAIN"
     local email="$SSL_EMAIL"
-    local staging="--staging"
+
+    if [[ -z "$email" ]]; then
+        log_warning "No email provided, skipping SSL certificate"
+        log_info "You can obtain it later with: certbot certonly --webroot -w ./certs/www -d *.$domain"
+        return
+    fi
 
     log_info "Attempting to get SSL certificate for *.$domain"
-    log_info "First attempt will use Let's Encrypt staging server"
 
     # Create temporary nginx for standalone certbot
     docker run --rm -d \
         --name frp-temp-nginx \
         -p 80:80 \
         -v "$CERT_DIR/www:/var/www/certbot" \
-        nginx:alpine
+        nginx:alpine >/dev/null 2>&1
 
     sleep 2
 
@@ -268,38 +417,9 @@ get_ssl_certificate() {
         -d "*.$domain" \
         --email "$email" \
         --agree-tos \
-        --no-eff-email \
-        $staging; then
+        --no-eff-email 2>&1 | grep -v "setlocale"; then
 
-        log_success "Staging certificate obtained"
-
-        # Now get production certificate
-        docker stop frp-temp-nginx >/dev/null 2>&1
-
-        log_info "Getting production certificate..."
-        docker run --rm -d \
-            --name frp-temp-nginx \
-            -p 80:80 \
-            -v "$CERT_DIR/www:/var/www/certbot" \
-            nginx:alpine
-
-        sleep 2
-
-        if docker run --rm \
-            -v "$CERT_DIR/letsencrypt:/etc/letsencrypt" \
-            -v "$CERT_DIR/www:/var/www/certbot" \
-            certbot/certbot:latest \
-            certonly --webroot \
-            -w "/var/www/certbot" \
-            -d "*.$domain" \
-            --email "$email" \
-            --agree-tos \
-            --no-eff-email \
-            --force-renewal; then
-            log_success "Production certificate obtained"
-        else
-            log_warning "Production certificate failed, using staging certificate"
-        fi
+        log_success "SSL certificate obtained"
     else
         log_warning "Failed to obtain SSL certificate"
         log_info "You can obtain it later using certbot manually"
@@ -331,29 +451,15 @@ show_status() {
     echo
     log_success "Installation completed!"
     echo
-    log_info "Service Status:"
-    echo
-
-    if docker compose version &>/dev/null; then
-        docker compose ps
-    else
-        docker-compose ps
-    fi
-
-    echo
     log_info "Configuration Summary:"
     echo "  Tunnel Domain: $TUNNEL_DOMAIN"
     echo "  HTTP Port: $NGINX_HTTP_PORT"
     echo "  HTTPS Port: $NGINX_HTTPS_PORT"
     echo "  FRPS Port: $FRPS_PORT"
+    echo "  Auth Token: $FRP_AUTH_TOKEN"
     if [[ "$DASHBOARD_ENABLED" == "true" ]]; then
         echo "  Dashboard: http://<server-ip>:$DASHBOARD_PORT"
     fi
-    echo
-
-    log_info "DNS Configuration:"
-    echo "  Add the following A record to your DNS:"
-    echo "    *.tunnel  A  <server-ip>"
     echo
 
     log_info "Client Configuration:"
@@ -361,15 +467,6 @@ show_status() {
     echo "  Server Port: $FRPS_PORT"
     echo "  Auth Token: $FRP_AUTH_TOKEN"
     echo
-
-    log_info "To view logs:"
-    echo "  docker compose logs -f"
-    echo
-
-    log_info "To manage services:"
-    echo "  docker compose stop    # Stop services"
-    echo "  docker compose start   # Start services"
-    echo "  docker compose restart # Restart services"
 }
 
 # Main installation flow
@@ -384,21 +481,44 @@ main() {
     generate_frps_config
     generate_nginx_config
 
-    echo
-    if confirm "Get SSL certificate now?"; then
-        get_ssl_certificate
+    # SSL certificate
+    if [[ "$SKIP_SSL" == "true" ]]; then
+        log_warning "Skipping SSL certificate acquisition"
+        log_info "You can obtain it later with: certbot certonly --webroot -w ./certs/www -d *.$TUNNEL_DOMAIN"
+    elif [[ "$NON_INTERACTIVE" == "true" ]]; then
+        if [[ -n "$SSL_EMAIL" ]]; then
+            get_ssl_certificate
+        else
+            log_warning "No SSL email provided, skipping SSL certificate"
+        fi
     else
-        log_warning "Skipping SSL certificate. Remember to obtain it before starting services."
-        log_info "You can get it later with: certbot certonly --webroot -w ./certs/www -d *.$TUNNEL_DOMAIN"
+        echo
+        if confirm "Get SSL certificate now?"; then
+            get_ssl_certificate
+        else
+            log_warning "Skipping SSL certificate. Remember to obtain it before starting services."
+        fi
     fi
 
-    echo
-    if confirm "Start services now?"; then
+    # Start services
+    if [[ "$AUTO_START" == "true" ]]; then
+        echo
         start_services
         sleep 2
         show_status
+    elif [[ "$NON_INTERACTIVE" == "true" ]]; then
+        log_info "Services not started. Start them with: docker compose up -d"
+        show_status
     else
-        log_info "Services not started. Start them later with: docker compose up -d"
+        echo
+        if confirm "Start services now?"; then
+            start_services
+            sleep 2
+            show_status
+        else
+            log_info "Services not started. Start them later with: docker compose up -d"
+            show_status
+        fi
     fi
 }
 

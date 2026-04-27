@@ -178,6 +178,14 @@ curl https://myapp.tunnel.yourdomain.com
 - 檢查 Nginx 配置中的域名
 - 查看服務端日誌
 
+## 已知問題
+
+**ghcr.io 鏡像拉取未使用代理**
+- 當前 `~/.docker/config.json` 的代理配置未生效
+- ghcr.io/snowdreamtech/frps 鏡像直連下載較慢（約 1-2 分鐘）
+- 國內鏡像源（docker.m.daocloud.io 等）正常直連
+- **待處理：** 改用 systemd 環境變量或 SOCKS5 代理配置
+
 ## 安全建議
 
 1. 使用強密碼作為 Auth Token

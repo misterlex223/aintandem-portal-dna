@@ -105,22 +105,4 @@ http {
             proxy_request_buffering off;
         }
     }
-
-    # Dashboard (if enabled)
-    {{#DASHBOARD_ENABLED}}
-    server {
-        listen {{DASHBOARD_PORT}};
-        server_name _;
-
-        auth_basic "FRP Dashboard";
-        auth_basic_user_file /etc/nginx/.htpasswd;
-
-        location / {
-            proxy_pass http://frps:{{DASHBOARD_PORT}};
-            proxy_set_header Host $host;
-            proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        }
-    }
-    {{/DASHBOARD_ENABLED}}
 }

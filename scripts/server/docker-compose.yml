@@ -1,6 +1,6 @@
 services:
   frps:
-    image: snowdreamtech/frps:${FRP_VERSION:-0.60.0}
+    image: ghcr.io/snowdreamtech/frps:${FRP_VERSION:-0.68.1}
     container_name: frps
     restart: unless-stopped
     expose:

@@ -15,7 +15,12 @@ FRP_DOMAIN="${FRP_DOMAIN:-}"
 FRP_TOKEN="${FRP_TOKEN:-}"
 FRP_SSL_EMAIL="${FRP_SSL_EMAIL:-}"
 FRP_AUTO_START="${FRP_AUTO_START:-false}"
-FRP_SKIP_SSL="${FRP_SKIP_SSL:-true}"
+# 如果提供了 SSL 郵箱，默認不跳過 SSL
+if [[ -n "$FRP_SSL_EMAIL" ]]; then
+    FRP_SKIP_SSL="${FRP_SKIP_SSL:-false}"
+else
+    FRP_SKIP_SSL="${FRP_SKIP_SSL:-true}"
+fi
 
 # 獲取腳本目錄 (支援直接執行和 stdin 傳輸)
 if [[ -n "${BASH_SOURCE[0]:-}" ]]; then
@@ -526,7 +531,6 @@ stage_run_install() {
     # 如果有域名配置，使用非互動模式
     if [[ -n "$FRP_DOMAIN" ]]; then
         install_args="--domain $FRP_DOMAIN -y"
-        install_args="$install_args --skip-ssl"
 
         if [[ -n "$FRP_TOKEN" ]]; then
             install_args="$install_args --token $FRP_TOKEN"
@@ -534,6 +538,11 @@ stage_run_install() {
 
         if [[ -n "$FRP_SSL_EMAIL" ]]; then
             install_args="$install_args --ssl-email $FRP_SSL_EMAIL"
+        fi
+
+        # 只有在明確設置 FRP_SKIP_SSL 為 true 時才跳過 SSL
+        if [[ "$FRP_SKIP_SSL" == "true" ]]; then
+            install_args="$install_args --skip-ssl"
         fi
 
         if [[ "$FRP_AUTO_START" == "true" ]]; then

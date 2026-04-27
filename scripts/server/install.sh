@@ -294,7 +294,7 @@ generate_env() {
 COMPOSE_PROJECT_NAME=$PROJECT_NAME
 
 # FRP Configuration
-FRP_VERSION=0.52.3
+FRP_VERSION=0.68.1
 FRPS_PORT=$FRPS_PORT
 FRPS_VHOST_HTTP_PORT=$FRPS_VHOST_HTTP_PORT
 FRP_AUTH_TOKEN=$FRP_AUTH_TOKEN
@@ -392,17 +392,17 @@ get_ssl_certificate() {
 
     if [[ -z "$email" ]]; then
         log_warning "No email provided, skipping SSL certificate"
-        log_info "You can obtain it later with: certbot certonly --webroot -w ./certs/www -d *.$domain"
+        log_info "You can obtain it later with: certbot certonly --webroot -w ./certs/www -d $domain"
         return
     fi
 
-    log_info "Attempting to get SSL certificate for *.$domain"
+    log_info "Attempting to get SSL certificate for $domain"
 
     # Create temporary nginx for standalone certbot
     docker run --rm -d \
         --name frp-temp-nginx \
         -p 80:80 \
-        -v "$CERT_DIR/www:/var/www/certbot" \
+        -v "$CERT_DIR/www:/usr/share/nginx/html" \
         nginx:alpine >/dev/null 2>&1
 
     sleep 2
@@ -410,11 +410,11 @@ get_ssl_certificate() {
     # Get certificate
     if docker run --rm \
         -v "$CERT_DIR/letsencrypt:/etc/letsencrypt" \
-        -v "$CERT_DIR/www:/var/www/certbot" \
+        -v "$CERT_DIR/www:/usr/share/nginx/html" \
         certbot/certbot:latest \
         certonly --webroot \
-        -w "/var/www/certbot" \
-        -d "*.$domain" \
+        -w /usr/share/nginx/html \
+        -d "$domain" \
         --email "$email" \
         --agree-tos \
         --no-eff-email 2>&1 | grep -v "setlocale"; then
@@ -484,7 +484,7 @@ main() {
     # SSL certificate
     if [[ "$SKIP_SSL" == "true" ]]; then
         log_warning "Skipping SSL certificate acquisition"
-        log_info "You can obtain it later with: certbot certonly --webroot -w ./certs/www -d *.$TUNNEL_DOMAIN"
+        log_info "You can obtain it later with: certbot certonly --webroot -w ./certs/www -d $TUNNEL_DOMAIN"
     elif [[ "$NON_INTERACTIVE" == "true" ]]; then
         if [[ -n "$SSL_EMAIL" ]]; then
             get_ssl_certificate

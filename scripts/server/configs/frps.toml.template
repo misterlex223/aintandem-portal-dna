@@ -9,7 +9,8 @@ vhostHTTPPort = {{FRPS_VHOST_HTTP_PORT}}
 
 # Authentication token
 [auth]
-token = {{FRP_AUTH_TOKEN}}
+method = "token"
+token = "{{FRP_AUTH_TOKEN}}"
 
 # Logging configuration
 [log]
@@ -20,7 +21,7 @@ maxDays = 7
 # Dashboard configuration (if enabled)
 {{#DASHBOARD_ENABLED}}
 [webServer]
-addr = "0.0.0.0"
+addr = 0.0.0.0
 port = {{DASHBOARD_PORT}}
 user = {{DASHBOARD_USER}}
 password = {{DASHBOARD_PASSWORD}}

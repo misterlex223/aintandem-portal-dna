@@ -220,6 +220,98 @@ else
 fi
 log_success "腳本已上傳"
 
+# 下載 xray (如果在本地使用代理，可以成功訪問 GitHub)
+if [[ -n "$FRP_PROXY_VLESS" ]]; then
+    log_info "準備 xray 二進製..."
+
+    # 創建臨時目錄
+    TEMP_DIR=$(mktemp -d)
+    XRAY_ZIP="$TEMP_DIR/xray.zip"
+
+    # 下載 xray (使用本地的代理環境)
+    log_info "從 GitHub 下載 xray..."
+    if curl -L -o "$XRAY_ZIP" "https://github.com/XTLS/Xray-core/releases/download/v1.8.24/Xray-linux-64.zip" 2>/dev/null; then
+        # 解壓 (使用 Python zipfile，因為系統可能沒有 unzip)
+        python3 -c "import zipfile; zipfile.ZipFile('$XRAY_ZIP').extractall('$TEMP_DIR')"
+        chmod +x "$TEMP_DIR/xray"
+        log_success "xray 已下載"
+
+        # 解析 VLESS URL: vless://encoded_part?params
+        # 編碼部分格式: :uuid@server:port (注意開頭的冒號)
+        vless_encoded=$(echo "$FRP_PROXY_VLESS" | sed 's/vless:\/\///;s/\?.*//')
+        vless_decoded=$(echo "$vless_encoded" | base64 -d 2>/dev/null || echo "$vless_encoded")
+
+        # 使用正則表達式更可靠地解析
+        [[ "$vless_decoded" =~ :([0-9a-f-]+)@([0-9.]+):([0-9]+) ]]
+        vless_uuid="${BASH_REMATCH[1]}"
+        vless_server="${BASH_REMATCH[2]}"
+        vless_port="${BASH_REMATCH[3]}"
+        vless_peer=$(echo "$FRP_PROXY_VLESS" | sed -n 's/.*peer=\([^&]*\).*/\1/p')
+
+        # 生成 xray 配置文件
+        log_info "生成 xray 配置文件..."
+        XRAY_CONFIG="$TEMP_DIR/xray-vless.json"
+
+        # 使用 jq 生成配置
+        jq -n \
+            --argjson loglevel '"warning"' \
+            --argjson port "${FRP_PROXY_HTTP_PORT:-10808}" \
+            --arg uuid "$vless_uuid" \
+            --arg server "$vless_server" \
+            --argjson port_num "$vless_port" \
+            --arg peer "$vless_peer" \
+            '{
+                log: { loglevel: $loglevel },
+                inbounds: [
+                    {
+                        port: $port,
+                        protocol: "http",
+                        settings: { allowTransparent: false }
+                    }
+                ],
+                outbounds: [
+                    {
+                        protocol: "vless",
+                        settings: {
+                            vnext: [
+                                {
+                                    address: $server,
+                                    port: $port_num,
+                                    users: [{ id: $uuid, encryption: "none" }]
+                                }
+                            ]
+                        },
+                        streamSettings: {
+                            network: "tcp",
+                            security: "tls",
+                            tlsSettings: {
+                                serverName: $peer,
+                                allowInsecure: false
+                            }
+                        }
+                    }
+                ]
+            }' > "$XRAY_CONFIG"
+
+        # 上傳 xray 和配置到遠端
+        log_info "上傳 xray 到遠端..."
+        if [[ -n "$SSH_KEY" ]]; then
+            scp -i "$SSH_KEY" -P "$SSH_PORT" -o StrictHostKeyChecking=no "$TEMP_DIR/xray" "${SSH_USER}@${REMOTE_HOST}:/tmp/xray"
+            scp -i "$SSH_KEY" -P "$SSH_PORT" -o StrictHostKeyChecking=no "$XRAY_CONFIG" "${SSH_USER}@${REMOTE_HOST}:/tmp/xray-vless.json"
+        else
+            scp -P "$SSH_PORT" -o StrictHostKeyChecking=no "$TEMP_DIR/xray" "${SSH_USER}@${REMOTE_HOST}:/tmp/xray"
+            scp -P "$SSH_PORT" -o StrictHostKeyChecking=no "$XRAY_CONFIG" "${SSH_USER}@${REMOTE_HOST}:/tmp/xray-vless.json"
+        fi
+        log_success "xray 已上傳"
+    else
+        log_error "下載 xray 失敗"
+        log_info "將在遠端嘗試直接下載"
+    fi
+
+    # 清理臨時文件
+    rm -rf "$TEMP_DIR"
+fi
+
 # 執行初始化腳本
 log_info "執行初始化腳本..."
 echo

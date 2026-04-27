@@ -433,44 +433,41 @@ EOF
     if systemctl is-active --quiet xray; then
         log_progress "✓ xray 已啟動"
 
-        # 配置 Docker 使用 proxy
+        # 配置 Docker 使用 ~/.docker/config.json
+        # 注意：國內鏡像源不走代理，ghcr.io 等國外源走代理
         local proxy_url="http://127.0.0.1:${FRP_PROXY_HTTP_PORT:-10808}"
-        local docker_daemon_json="/etc/docker/daemon.json"
+        local docker_config="/root/.docker/config.json"
 
-        # 備份現有配置
-        if [[ -f "$docker_daemon_json" ]]; then
-            cp "$docker_daemon_json" "${docker_daemon_json}.backup.$(date +%Y%m%d%H%M%S)"
-        fi
+        # 創建目錄
+        mkdir -p "$(dirname "$docker_config")"
 
-        # 使用 Python 添加 proxy 配置
+        # 使用 Python 創建配置
         python3 << PYTHON
 import json
-import os
 
-daemon_json = "$docker_daemon_json"
+docker_config = "$docker_config"
 proxy_url = "$proxy_url"
 
-# 讀取現有配置
-if os.path.exists(daemon_json):
-    with open(daemon_json, 'r') as f:
-        config = json.load(f)
-else:
-    config = {"log-driver": "json-file", "log-opts": {"max-size": "10m", "max-file": "3"}}
-
-# 添加 proxy 配置
-config["proxies"] = {
-    "http-proxy": proxy_url,
-    "https-proxy": proxy_url
+# Docker client 配置格式
+config = {
+    "proxies": {
+        "default": {
+            "httpProxy": proxy_url,
+            "httpsProxy": proxy_url
+        },
+        # 國內鏡像源不走代理
+        "https://docker.m.daocloud.io": {"noProxy": "true"},
+        "https://dockerproxy.com": {"noProxy": "true"},
+        "https://docker.mirrors.ustc.edu.cn": {"noProxy": "true"},
+        "https://docker.nju.edu.cn": {"noProxy": "true"}
+    }
 }
 
-# 寫回配置
-with open(daemon_json, 'w') as f:
+with open(docker_config, 'w') as f:
     json.dump(config, f, indent=2)
-PYTHON
 
-        # 重啟 Docker
-        systemctl restart docker
-        sleep 2
+print(f"Created {docker_config}")
+PYTHON
 
         log_progress "✓ Docker 已配置使用 Proxy"
     else

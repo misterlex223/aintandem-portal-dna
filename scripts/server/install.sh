@@ -384,6 +384,27 @@ generate_nginx_config() {
 }
 
 # Get initial SSL certificate
+
+# Generate temporary self-signed certificate
+generate_temp_certificate() {
+    log_step "Generating temporary SSL certificate..."
+
+    local domain="$TUNNEL_DOMAIN"
+    local cert_dir="$CERT_DIR/letsencrypt/live/$domain"
+
+    # Create directory
+    mkdir -p "$cert_dir"
+
+    # Generate self-signed certificate valid for 1 day
+    openssl req -x509 -nodes -days 1 -newkey rsa:2048 \
+        -keyout "$cert_dir/privkey.pem" \
+        -out "$cert_dir/fullchain.pem" \
+        -subj "/CN=$domain" >/dev/null 2>&1
+
+    log_success "Temporary certificate generated (will be replaced)"
+}
+
+# Get SSL certificate using Let's Encrypt
 get_ssl_certificate() {
     log_step "Setting up SSL certificate..."
 
@@ -398,37 +419,44 @@ get_ssl_certificate() {
 
     log_info "Attempting to get SSL certificate for $domain"
 
-    # Create temporary nginx for standalone certbot
-    docker run --rm -d \
-        --name frp-temp-nginx \
-        -p 80:80 \
-        -v "$CERT_DIR/www:/usr/share/nginx/html" \
-        nginx:alpine >/dev/null 2>&1
+    # Check if certificate already exists and is valid
+    if [[ -f "$CERT_DIR/letsencrypt/live/$domain/fullchain.pem" ]]; then
+        # Check if certificate is self-signed (temporary)
+        if openssl x509 -in "$CERT_DIR/letsencrypt/live/$domain/fullchain.pem" -noout -subject 2>/dev/null | grep -q "CN=$domain"; then
+            log_info "Temporary certificate found, obtaining real certificate..."
+        else
+            log_info "Valid certificate already exists"
+            return
+        fi
+    fi
 
-    sleep 2
-
-    # Get certificate
-    if docker run --rm \
-        -v "$CERT_DIR/letsencrypt:/etc/letsencrypt" \
-        -v "$CERT_DIR/www:/usr/share/nginx/html" \
-        certbot/certbot:latest \
-        certonly --webroot \
-        -w /usr/share/nginx/html \
+    # Get certificate using certbot container
+    if docker compose run --rm certbot certonly --webroot \
+        --webroot-path=/var/www/certbot \
         -d "$domain" \
         --email "$email" \
         --agree-tos \
         --no-eff-email 2>&1 | grep -v "setlocale"; then
 
         log_success "SSL certificate obtained"
+        return 0
     else
         log_warning "Failed to obtain SSL certificate"
         log_info "You can obtain it later using certbot manually"
+        return 1
     fi
-
-    docker stop frp-temp-nginx >/dev/null 2>&1
 }
 
-# Start services
+# Restart nginx to reload SSL certificate
+restart_nginx() {
+    log_info "Restarting nginx to load SSL certificate..."
+
+    docker compose restart nginx >/dev/null 2>&1
+
+    sleep 3
+
+    log_success "nginx restarted"
+}
 start_services() {
     log_step "Starting services..."
 
@@ -481,45 +509,56 @@ main() {
     generate_frps_config
     generate_nginx_config
 
-    # SSL certificate
+    # SSL certificate & Services
+    local ssl_obtained=false
+    local needs_nginx_restart=false
+
     if [[ "$SKIP_SSL" == "true" ]]; then
         log_warning "Skipping SSL certificate acquisition"
         log_info "You can obtain it later with: certbot certonly --webroot -w ./certs/www -d $TUNNEL_DOMAIN"
-    elif [[ "$NON_INTERACTIVE" == "true" ]]; then
-        if [[ -n "$SSL_EMAIL" ]]; then
-            get_ssl_certificate
-        else
-            log_warning "No SSL email provided, skipping SSL certificate"
-        fi
-    else
-        echo
-        if confirm "Get SSL certificate now?"; then
-            get_ssl_certificate
-        else
-            log_warning "Skipping SSL certificate. Remember to obtain it before starting services."
-        fi
+    elif [[ -n "$SSL_EMAIL" ]]; then
+        # Generate temporary certificate for nginx to start
+        generate_temp_certificate
     fi
 
     # Start services
     if [[ "$AUTO_START" == "true" ]]; then
         echo
         start_services
-        sleep 2
-        show_status
+        sleep 3
     elif [[ "$NON_INTERACTIVE" == "true" ]]; then
         log_info "Services not started. Start them with: docker compose up -d"
         show_status
+        return
     else
         echo
         if confirm "Start services now?"; then
             start_services
-            sleep 2
-            show_status
+            sleep 3
         else
             log_info "Services not started. Start them later with: docker compose up -d"
             show_status
+            return
         fi
     fi
+
+    # Get real SSL certificate after services are running
+    if [[ "$SKIP_SSL" != "true" ]] && [[ -n "$SSL_EMAIL" ]]; then
+        echo
+        if get_ssl_certificate; then
+            ssl_obtained=true
+            needs_nginx_restart=true
+        fi
+    fi
+
+    # Restart nginx with real certificate
+    if [[ "$needs_nginx_restart" == "true" ]]; then
+        echo
+        restart_nginx
+    fi
+
+    show_status
+
 }
 
 # Run main function

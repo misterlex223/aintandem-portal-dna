@@ -34,6 +34,7 @@ FRP Tunnel - 遠端部署腳本
     -d, --domain DOMAIN    FRP 隧道域名 (必需)
     -t, --token TOKEN      FRP 認證 Token (留空自動生成)
     --ssl-email EMAIL      SSL 憑證郵箱
+    --proxy-vless VLESS    Xray VLESS 連接 (GitHub 加速)
     --auto-start           自動啟動服務
     -h, --help             顯示此幫助
 
@@ -56,6 +57,7 @@ REMOTE_HOST=""
 FRP_DOMAIN=""
 FRP_TOKEN=""
 FRP_SSL_EMAIL=""
+FRP_PROXY_VLESS=""
 FRP_AUTO_START="false"
 
 while [[ $# -gt 0 ]]; do
@@ -86,6 +88,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --ssl-email)
             FRP_SSL_EMAIL="$2"
+            shift 2
+            ;;
+        --proxy-vless)
+            FRP_PROXY_VLESS="$2"
             shift 2
             ;;
         --auto-start)
@@ -228,6 +234,9 @@ if [[ -n "$FRP_TOKEN" ]]; then
 fi
 if [[ -n "$FRP_SSL_EMAIL" ]]; then
     env_vars="$env_vars; export FRP_SSL_EMAIL=$FRP_SSL_EMAIL"
+fi
+if [[ -n "$FRP_PROXY_VLESS" ]]; then
+    env_vars="$env_vars; export FRP_PROXY_VLESS='$FRP_PROXY_VLESS'"
 fi
 if [[ "$FRP_AUTO_START" == "true" ]]; then
     env_vars="$env_vars; export FRP_AUTO_START=true"

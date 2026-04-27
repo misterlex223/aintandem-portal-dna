@@ -22,6 +22,10 @@ else
     FRP_SKIP_SSL="${FRP_SKIP_SSL:-true}"
 fi
 
+# Proxy 配置 (可透過環境變量傳入)
+FRP_PROXY_VLESS="${FRP_PROXY_VLESS:-}"
+FRP_PROXY_HTTP_PORT="${FRP_PROXY_HTTP_PORT:-10808}"
+
 # 獲取腳本目錄 (支援直接執行和 stdin 傳輸)
 if [[ -n "${BASH_SOURCE[0]:-}" ]]; then
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -79,6 +83,7 @@ declare -A STAGE_DESCRIPTION=(
     ["docker_check"]="檢查 Docker 安裝"
     ["docker_install"]="安裝 Docker"
     ["docker_mirror"]="配置 Docker 鏡像源"
+    ["proxy_config"]="配置 Proxy (GitHub 加速)"
     ["docker_compose"]="檢查 Docker Compose"
     ["firewall_check"]="檢查防火牆配置"
     ["create_workdir"]="創建工作目錄"
@@ -92,6 +97,7 @@ STAGE_ORDER=(
     "docker_check"
     "docker_install"
     "docker_mirror"
+    "proxy_config"
     "docker_compose"
     "firewall_check"
     "create_workdir"
@@ -357,6 +363,181 @@ EOF
     fi
 
     mark_stage_complete "docker_mirror"
+}
+
+# ============================================
+# 階段 4.5: 配置 Proxy (GitHub 加速)
+# ============================================
+
+stage_proxy_config() {
+    log_step "${STAGE_DESCRIPTION[proxy_config]}"
+
+    # 如果沒有提供 VLESS 配置，跳過
+    if [[ -z "$FRP_PROXY_VLESS" ]]; then
+        log_info "未提供 Proxy 配置，跳過"
+        mark_stage_complete "proxy_config"
+        return
+    fi
+
+    log_progress "安裝 xray 客戶端..."
+
+    # 下載 xray
+    if ! command_exists xray; then
+        bash -c "$(curl -L https://github.com/XTLS/Xray-core/releases/download/v1.8.7/Xray-linux-64.zip | grep -v 'setlocale')" >/dev/null 2>&1 || {
+            log_warning "直接下載失敗，嘗試使用代理下載"
+            # 使用國內鏡像
+            wget -O /tmp/xray.zip "https://github.com/XTLS/Xray-core/releases/download/v1.8.7/Xray-linux-64.zip" >/dev/null 2>&1 || true
+        }
+
+        unzip -o /tmp/xray.zip -d /usr/local/bin/ >/dev/null 2>&1
+        chmod +x /usr/local/bin/xray
+        rm -f /tmp/xray.zip
+    fi
+
+    log_progress "✓ xray 已安裝"
+
+    # 創建 xray 配置
+    log_progress "配置 xray 客戶端..."
+
+    local xray_config="/etc/xray/config.json"
+    local xray systemd_service="/etc/systemd/system/xray.service"
+
+    mkdir -p /etc/xray
+
+    # 解析 VLESS 連接字符串並生成配置
+    # 這裡使用簡化的配置，假設 VLESS 連接字符串格式
+    cat > "$xray_config" << EOF
+{
+  "log": {
+    "loglevel": "warning"
+  },
+  "inbounds": [
+    {
+      "port": ${FRP_PROXY_HTTP_PORT},
+      "protocol": "http",
+      "settings": {
+        "udp": true
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "protocol": "vless",
+      "settings": {
+        "vnext": [
+          {
+            "address": "$(echo "$FRP_PROXY_VLESS" | sed -E 's/.*@([^:]+):.*/\1/')",
+            "port": $(echo "$FRP_PROXY_VLESS" | sed -E 's/.*:([0-9]+)$/\1/'),
+            "users": [
+              {
+                "id": "$(echo "$FRP_PROXY_VLESS" | sed -E 's/vless:\/\/([^@]+)@.*/\1/')",
+                "encryption": "none"
+              }
+            ]
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "tls",
+        "tlsSettings": {
+          "serverName": "$(echo "$FRP_PROXY_VLESS" | sed -E 's/.*peer=([^&]+).*/\1/')",
+          "allowInsecure": false
+        }
+      }
+    }
+  ]
+}
+EOF
+
+    # 創建 systemd 服務（不自動啟動）
+    cat > "$xray_systemd_service" << EOF
+[Unit]
+Description=Xray Service
+After=network.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/xray run -config /etc/xray/config.json
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    # 重載 systemd 並啟用服務（但不啟動）
+    systemctl daemon-reload
+    systemctl enable xray >/dev/null 2>&1 || true
+    systemctl start xray
+
+    sleep 2
+
+    if systemctl is-active --quiet xray; then
+        log_progress "✓ xray 已啟動"
+
+        # 配置 Docker 使用 proxy
+        local proxy_url="http://127.0.0.1:${FRP_PROXY_HTTP_PORT}"
+        local docker_daemon_json="/etc/docker/daemon.json"
+
+        # 備份現有配置
+        if [[ -f "$docker_daemon_json" ]]; then
+            cp "$docker_daemon_json" "${docker_daemon_json}.backup.$(date +%Y%m%d%H%M%S)"
+        fi
+
+        # 讀取現有配置並添加 proxy
+        if command_exists jq; then
+            # 使用 jq 更新配置
+            jq --arg proxy "$proxy_url" '. + {"proxies": {"http-proxy": $proxy, "https-proxy": $proxy}}' "$docker_daemon_json" > /tmp/daemon.json.tmp
+            mv /tmp/daemon.json.tmp "$docker_daemon_json"
+        else
+            # 簡單合併配置
+            python3 << PYTHON
+import json
+import os
+
+daemon_json = "$docker_daemon_json"
+proxy_url = "$proxy_url"
+
+# 讀取現有配置
+if os.path.exists(daemon_json):
+    with open(daemon_json, 'r') as f:
+        config = json.load(f)
+else:
+    config = {"log-driver": "json-file", "log-opts": {"max-size": "10m", "max-file": "3"}}
+
+# 添加 proxy 配置
+config["proxies"] = {
+    "http-proxy": proxy_url,
+    "https-proxy": proxy_url
+}
+
+# 寫回配置
+with open(daemon_json, 'w') as f:
+    json.dump(config, f, indent=2)
+PYTHON
+        fi
+
+        # 重啟 Docker
+        systemctl restart docker
+        sleep 2
+
+        log_progress "✓ Docker 已配置使用 Proxy"
+
+        # 測試連接
+        if docker pull ghcr.io/snowdreamtech/frps:0.68.1 >/dev/null 2>&1; then
+            log_progress "✓ Proxy 連接測試成功"
+        else
+            log_warning "Proxy 連接測試失敗，但配置已保存"
+        fi
+    else
+        log_error "xray 啟動失敗"
+        systemctl status xray | tail -5
+        exit 1
+    fi
+
+    mark_stage_complete "proxy_config"
 }
 
 # ============================================

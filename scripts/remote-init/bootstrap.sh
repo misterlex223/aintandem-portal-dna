@@ -15,6 +15,7 @@ FRP_DOMAIN="${FRP_DOMAIN:-}"
 FRP_TOKEN="${FRP_TOKEN:-}"
 FRP_SSL_EMAIL="${FRP_SSL_EMAIL:-}"
 FRP_AUTO_START="${FRP_AUTO_START:-false}"
+FRP_ENABLE_DASHBOARD="${FRP_ENABLE_DASHBOARD:-}"
 # 如果提供了 SSL 郵箱，默認不跳過 SSL
 if [[ -n "$FRP_SSL_EMAIL" ]]; then
     FRP_SKIP_SSL="${FRP_SKIP_SSL:-false}"
@@ -667,6 +668,14 @@ stage_run_install() {
 
         if [[ "$FRP_AUTO_START" == "true" ]]; then
             install_args="$install_args --auto-start"
+        fi
+
+        if [[ -n "$FRP_ENABLE_DASHBOARD" ]]; then
+            if [[ "$FRP_ENABLE_DASHBOARD" == "true" ]]; then
+                install_args="$install_args --enable-dashboard"
+            else
+                install_args="$install_args --no-dashboard"
+            fi
         fi
     fi
 

@@ -36,6 +36,8 @@ FRP Tunnel - 遠端部署腳本
     --ssl-email EMAIL      SSL 憑證郵箱
     --proxy-vless VLESS    Xray VLESS 連接 (GitHub 加速)
     --auto-start           自動啟動服務
+    --enable-dashboard     啟用 FRP Dashboard
+    --no-dashboard         禁用 FRP Dashboard (預設)
     -h, --help             顯示此幫助
 
 參數:
@@ -59,6 +61,7 @@ FRP_TOKEN=""
 FRP_SSL_EMAIL=""
 FRP_PROXY_VLESS=""
 FRP_AUTO_START="false"
+FRP_ENABLE_DASHBOARD=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -96,6 +99,14 @@ while [[ $# -gt 0 ]]; do
             ;;
         --auto-start)
             FRP_AUTO_START="true"
+            shift
+            ;;
+        --enable-dashboard)
+            FRP_ENABLE_DASHBOARD="true"
+            shift
+            ;;
+        --no-dashboard)
+            FRP_ENABLE_DASHBOARD="false"
             shift
             ;;
         -h|--help)
@@ -332,6 +343,9 @@ if [[ -n "$FRP_PROXY_VLESS" ]]; then
 fi
 if [[ "$FRP_AUTO_START" == "true" ]]; then
     env_vars="$env_vars; export FRP_AUTO_START=true"
+fi
+if [[ -n "$FRP_ENABLE_DASHBOARD" ]]; then
+    env_vars="$env_vars; export FRP_ENABLE_DASHBOARD=$FRP_ENABLE_DASHBOARD"
 fi
 
 # 將腳本內容傳到遠端執行，帶環境變量

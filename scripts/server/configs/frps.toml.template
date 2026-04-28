@@ -21,8 +21,8 @@ maxDays = 7
 # Dashboard configuration (if enabled)
 {{#DASHBOARD_ENABLED}}
 [webServer]
-addr = 0.0.0.0
+addr = "0.0.0.0"
 port = {{DASHBOARD_PORT}}
-user = {{DASHBOARD_USER}}
-password = {{DASHBOARD_PASSWORD}}
+user = "{{DASHBOARD_USER}}"
+password = "{{DASHBOARD_PASSWORD}}"
 {{/DASHBOARD_ENABLED}}

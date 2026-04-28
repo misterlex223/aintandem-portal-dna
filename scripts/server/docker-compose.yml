@@ -3,6 +3,8 @@ services:
     image: ghcr.io/snowdreamtech/frps:${FRP_VERSION:-0.68.1}
     container_name: frps
     restart: unless-stopped
+    ports:
+      - "127.0.0.1:${DASHBOARD_PORT:-7500}:7500"
     expose:
       - "8080"
     volumes:
@@ -20,7 +22,6 @@ services:
     ports:
       - "${NGINX_HTTP_PORT:-80}:80"
       - "${NGINX_HTTPS_PORT:-443}:443"
-      - "${DASHBOARD_PORT:-7500}:${DASHBOARD_PORT:-7500}"
     volumes:
       - ./configs/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./certs/www:/var/www/certbot:ro

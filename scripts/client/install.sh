@@ -42,6 +42,7 @@ parse_args() {
     LOCAL_PORT=""
     LOCAL_IP="127.0.0.1"
     PROXY_NAME="web"
+    NON_INTERACTIVE=false
 
     while [[ $# -gt 0 ]]; do
         case $1 in
@@ -77,6 +78,10 @@ parse_args() {
                 PROXY_NAME="$2"
                 shift 2
                 ;;
+            -y|--yes)
+                NON_INTERACTIVE=true
+                shift
+                ;;
             -h|--help)
                 show_help
                 exit 0
@@ -104,6 +109,7 @@ Options:
     --local-port <port>   Local port to forward (required)
     --local-ip <ip>       Local IP to forward to (default: 127.0.0.1)
     --proxy-name <name>   Proxy name (default: web)
+    -y, --yes             Auto-confirm all prompts (non-interactive mode)
     -h, --help            Show this help
 
 Example:
@@ -181,11 +187,13 @@ install_frpc() {
             return 0
         fi
 
-        if confirm "Update to version $FRPC_VERSION?"; then
-            :
-        else
-            log_info "Using existing version"
-            return 0
+        if [[ "$NON_INTERACTIVE" == "false" ]]; then
+            if confirm "Update to version $FRPC_VERSION?"; then
+                :
+            else
+                log_info "Using existing version"
+                return 0
+            fi
         fi
     fi
 
@@ -303,9 +311,11 @@ main() {
     echo "  Local Forward: $LOCAL_IP:$LOCAL_PORT"
     echo
 
-    if ! confirm "Proceed with installation?"; then
-        log_info "Installation cancelled"
-        exit 0
+    if [[ "$NON_INTERACTIVE" == "false" ]]; then
+        if ! confirm "Proceed with installation?"; then
+            log_info "Installation cancelled"
+            exit 0
+        fi
     fi
 
     install_frpc

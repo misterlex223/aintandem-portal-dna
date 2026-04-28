@@ -37,6 +37,9 @@ Options:
     --ssl-email EMAIL         Email for Let's Encrypt notifications
     --enable-dashboard        Enable frp dashboard
     --no-dashboard            Disable frp dashboard (default)
+    --dashboard-port PORT     Dashboard port (default: 7500)
+    --dashboard-user USER     Dashboard username (default: admin)
+    --dashboard-password PASS Dashboard password (auto-generated if not provided)
     --http-port PORT          HTTP port (default: 80)
     --https-port PORT         HTTPS port (default: 443)
     --frps-port PORT          FRPS port (default: 7000)
@@ -64,6 +67,9 @@ TUNNEL_DOMAIN=""
 FRP_AUTH_TOKEN=""
 SSL_EMAIL=""
 DASHBOARD_ENABLED="false"
+DASHBOARD_PORT="7500"
+DASHBOARD_USER="admin"
+DASHBOARD_PASSWORD=""
 NGINX_HTTP_PORT="80"
 NGINX_HTTPS_PORT="443"
 FRPS_PORT="7000"
@@ -94,6 +100,18 @@ while [[ $# -gt 0 ]]; do
         --no-dashboard)
             DASHBOARD_ENABLED="false"
             shift
+            ;;
+        --dashboard-port)
+            DASHBOARD_PORT="$2"
+            shift 2
+            ;;
+        --dashboard-user)
+            DASHBOARD_USER="$2"
+            shift 2
+            ;;
+        --dashboard-password)
+            DASHBOARD_PASSWORD="$2"
+            shift 2
             ;;
         --http-port)
             NGINX_HTTP_PORT="$2"
@@ -212,6 +230,12 @@ collect_config() {
         if [[ -z "$FRP_AUTH_TOKEN" ]]; then
             FRP_AUTH_TOKEN=$(generate_token)
             log_info "Generated auth token: $FRP_AUTH_TOKEN"
+        fi
+
+        # Generate dashboard password if not provided
+        if [[ "$DASHBOARD_ENABLED" == "true" ]] && [[ -z "$DASHBOARD_PASSWORD" ]]; then
+            DASHBOARD_PASSWORD=$(generate_token)
+            log_info "Generated dashboard password: $DASHBOARD_PASSWORD"
         fi
 
         # Validate domain

@@ -38,6 +38,7 @@ FRP Tunnel - 遠端部署腳本
     --auto-start           自動啟動服務
     --enable-dashboard     啟用 FRP Dashboard
     --no-dashboard         禁用 FRP Dashboard (預設)
+    --dev-host             部署為開發主機（使用 docker compose 模式）
     -h, --help             顯示此幫助
 
 參數:
@@ -107,6 +108,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --no-dashboard)
             FRP_ENABLE_DASHBOARD="false"
+            shift
+            ;;
+        --dev-host)
+            FRP_DEV_HOST="true"
             shift
             ;;
         -h|--help)

@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  frpc:
+    image: snowdreamtech/frpc:0.68.0
+    container_name: frpc
+    command: >
+      --serverAddr=${FRP_SERVER_ADDR}
+      --serverPort=${FRP_SERVER_PORT}
+      --auth.token=${FRP_AUTH_TOKEN}
+      --subdomain=${SUBDOMAIN}
+      --proxyAddr=${PROXY_ADDR}
+      --proxyPort=${PROXY_PORT}
+      --serverName=${SERVER_NAME}
+    restart: unless-stopped
+    networks:
+      - flexy-net
+
+  dev-sandbox:
+    image: ${SANDBOX_IMAGE}:${SANDBOX_TAG}
+    container_name: ${SANDBOX_CONTAINER_NAME:-dev-sandbox}
+    environment:
+      - CHROMIUM_MODE=vnc
+      - ENABLE_WEBTTY=true
+      - AI_WINDOW_1_TYPE=
+      - GIT_USERNAME=${GIT_USERNAME}
+      - GIT_EMAIL=${GIT_EMAIL}
+    restart: unless-stopped
+    networks:
+      - flexy-net
+
+networks:
+  flexy-net:
+    driver: bridge

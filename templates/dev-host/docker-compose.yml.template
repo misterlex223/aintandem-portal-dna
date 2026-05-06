@@ -5,13 +5,15 @@ services:
     image: snowdreamtech/frpc:0.68.0
     container_name: frpc
     command: >
-      --serverAddr=${FRP_SERVER_ADDR}
-      --serverPort=${FRP_SERVER_PORT}
-      --auth.token=${FRP_AUTH_TOKEN}
-      --subdomain=${SUBDOMAIN}
-      --proxyAddr=${PROXY_ADDR}
-      --proxyPort=${PROXY_PORT}
-      --serverName=${SERVER_NAME}
+      frpc http
+      --server-addr=${FRP_SERVER_ADDR}
+      --server-port=${FRP_SERVER_PORT}
+      --token=${FRP_AUTH_TOKEN}
+      --proxy-name=${SUBDOMAIN}
+      --local-ip=127.0.0.1
+      --local-port=${PROXY_PORT}
+      --sd=${SUBDOMAIN}
+      --tls-server-name=${SERVER_NAME}
     restart: unless-stopped
     networks:
       - flexy-net

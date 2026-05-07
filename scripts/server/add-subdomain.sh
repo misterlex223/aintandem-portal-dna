@@ -18,21 +18,20 @@ if [[ $# -lt 4 ]]; then
     exit 1
 fi
 
-readonly SSH_KEY="$1"
+# Expand SSH key path before making readonly
+SSH_KEY_PATH="${1/#\~/$HOME}"
+readonly SSH_KEY="$SSH_KEY_PATH"
 readonly PORTAL_HOST="$2"
 readonly SUBDOMAIN="$3"
 readonly SERVER_NAME="$4"
 readonly PASSWORD="${5:-}"
-
-# Expand SSH key path
-SSH_KEY="${SSH_KEY/#\~/$HOME}"
 
 log_info "Adding subdomain configuration to portal..."
 log_info "  Subdomain: $SUBDOMAIN.$SERVER_NAME"
 log_info "  Portal: $PORTAL_HOST"
 
 # Generate password if not provided
-local HTTP_PASSWORD="$PASSWORD"
+HTTP_PASSWORD="$PASSWORD"
 if [[ -z "$HTTP_PASSWORD" ]]; then
     HTTP_PASSWORD=$(openssl rand -base64 16 | tr -d "/+=" | head -16)
     log_info "  Generated password: $HTTP_PASSWORD"
@@ -73,12 +72,10 @@ server {
     listen 443 ssl http2;
     server_name ${SUBDOMAIN}.${SERVER_NAME};
 
-    # Try subdomain certificate first, fallback to wildcard
-    ssl_certificate /etc/letsencrypt/live/${SUBDOMAIN}.${SERVER_NAME}/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/${SUBDOMAIN}.${SERVER_NAME}/privkey.pem;
-    ssl_certificate /etc/letsencrypt/live/${SERVER_NAME}/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/${SERVER_NAME}/privkey.pem;
+    # SSL certificate (use tunnel IP certificate as fallback)
 
+    ssl_certificate /etc/letsencrypt/live/47.243.92.210/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/47.243.92.210/privkey.pem;
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;
     ssl_prefer_server_ciphers off;

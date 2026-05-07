@@ -37,6 +37,9 @@ http {
     # Rate limiting
     limit_req_zone $binary_remote_addr zone=frp_limit:10m rate=10r/s;
 
+    # Include subdomain-specific configurations
+    include /etc/nginx/conf.d/*.conf;
+
     # HTTP server - redirect to HTTPS and handle ACME challenges
     server {
         listen {{NGINX_HTTP_PORT}};

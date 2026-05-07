@@ -72,10 +72,9 @@ server {
     listen 443 ssl http2;
     server_name ${SUBDOMAIN}.${SERVER_NAME};
 
-    # SSL certificate (use tunnel IP certificate as fallback)
-
-    ssl_certificate /etc/letsencrypt/live/47.243.92.210/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/47.243.92.210/privkey.pem;
+    # SSL certificate
+    ssl_certificate /etc/letsencrypt/live/${SUBDOMAIN}.${SERVER_NAME}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${SUBDOMAIN}.${SERVER_NAME}/privkey.pem;
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;
     ssl_prefer_server_ciphers off;

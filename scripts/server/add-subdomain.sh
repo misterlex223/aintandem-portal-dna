@@ -30,12 +30,8 @@ log_info "Adding subdomain configuration to portal..."
 log_info "  Subdomain: $SUBDOMAIN.$SERVER_NAME"
 log_info "  Portal: $PORTAL_HOST"
 
-# Generate password if not provided
+# Use provided password (empty string means no Basic Auth)
 HTTP_PASSWORD="$PASSWORD"
-if [[ -z "$HTTP_PASSWORD" ]]; then
-    HTTP_PASSWORD=$(openssl rand -base64 16 | tr -d "/+=" | head -16)
-    log_info "  Generated password: $HTTP_PASSWORD"
-fi
 
 # Create directories on portal
 log_info "Creating directories..."
@@ -43,11 +39,15 @@ ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no \
     "root@${PORTAL_HOST}" \
     "mkdir -p /root/frp-tunnel/server/configs/subdomains /root/frp-tunnel/server/configs/htpasswd"
 
-# Generate .htpasswd file
-log_info "Configuring Basic Auth..."
-ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no \
-    "root@${PORTAL_HOST}" \
-    "echo \"${SUBDOMAIN}:\$(openssl passwd -1 '${HTTP_PASSWORD}')\" > /root/frp-tunnel/server/configs/htpasswd/${SUBDOMAIN}.htpasswd"
+# Generate .htpasswd file (skip if password is empty)
+if [[ -n "$HTTP_PASSWORD" ]]; then
+    log_info "Configuring Basic Auth..."
+    ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no \
+        "root@${PORTAL_HOST}" \
+        "echo \"${SUBDOMAIN}:\$(openssl passwd -1 '${HTTP_PASSWORD}')\" > /root/frp-tunnel/server/configs/htpasswd/${SUBDOMAIN}.htpasswd"
+else
+    log_info "Skipping Basic Auth (application handles authentication)"
+fi
 
 # Generate nginx subdomain configuration
 log_info "Generating nginx configuration..."
@@ -81,8 +81,12 @@ server {
     ssl_session_cache shared:SSL:10m;
     ssl_session_timeout 10m;
 
-    auth_basic "${SUBDOMAIN^} Dev Host";
-    auth_basic_user_file /etc/nginx/.htpasswd/${SUBDOMAIN}.htpasswd;
+$(if [[ -n "$HTTP_PASSWORD" ]]; then
+    echo "    auth_basic \"${SUBDOMAIN^} Dev Host\";"
+    echo "    auth_basic_user_file /etc/nginx/.htpasswd/${SUBDOMAIN}.htpasswd;"
+else
+    echo "    # No Basic Auth - application handles authentication"
+fi)
 
     add_header Strict-Transport-Security "max-age=31536000" always;
     add_header X-Frame-Options SAMEORIGIN always;
@@ -126,5 +130,7 @@ ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no \
 
 log_success "Subdomain configuration complete!"
 log_info "URL: https://${SUBDOMAIN}.${SERVER_NAME}"
-log_info "Username: ${SUBDOMAIN}"
-log_info "Password: ${HTTP_PASSWORD}"
+if [[ -n "$HTTP_PASSWORD" ]]; then
+    log_info "Username: ${SUBDOMAIN}"
+    log_info "Password: ${HTTP_PASSWORD}"
+fi
